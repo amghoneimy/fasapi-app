@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+pydantic
+google-cloud-aiplatform
+sentence-transformers
+torch
+pyngrok
+nest_asyncio

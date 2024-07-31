@@ -1,0 +1,8 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/flowing-sign-407814/fastapi-app', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/flowing-sign-407814/fastapi-app']
+
+images:
+  - 'gcr.io/flowing-sign-407814/fastapi-app'
