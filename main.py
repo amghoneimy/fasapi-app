@@ -1,24 +1,48 @@
+pip install fastapi uvicorn pyngrok nltk requests torch sentence-transformers google-cloud-aiplatform
+
+pip install "google-cloud-aiplatform[prediction]>=1.16.0"
+
+pip install nest_asyncio
+
 import os
-import nest_asyncio
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from google.cloud import aiplatform
-from google.cloud.aiplatform.prediction import PredictionServiceClient
-from sentence_transformers import SentenceTransformer, util
 import requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from google.cloud import aiplatform
+from google.cloud.aiplatform.gapic import PredictionServiceClient
+from sentence_transformers import SentenceTransformer, util
+import torch
 import xml.etree.ElementTree as ET
+from pyngrok import ngrok
+import nest_asyncio
+import uvicorn
 
-app = FastAPI()
+# Apply the nest_asyncio patch
+nest_asyncio.apply()
 
-class QueryModel(BaseModel):
-    query: str
-
+# Set up environment variables
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/content/drive/MyDrive/GENASSIS/GENASSIS_credentials.json"
 pubmed_api_key = '32141e41b42d3e976957b61c18f6653aa208'
 project_id = 'flowing-sign-407814'
 region = 'us-central1'
 endpoint_id = '7565935223796400128'
-
 aiplatform.init(project=project_id, location=region)
+
+# Initialize FastAPI
+app = FastAPI(
+    title="GENASSIS PubMed Module",
+    description="An API to process research queries and fetch relevant PubMed articles.",
+    version="1.0.0",
+    contact={
+        "name": "Ali Ghoneimy",
+        #"url": "https://yourwebsite.com",
+        "email": "amghoneimy@gmail.com",
+    }
+)
+
+# Model for request body
+class QueryModel(BaseModel):
+    query: str #= Field(..., example="What are the latest advancements in gene therapy?")
 
 def simplify_query(complex_query):
     client = PredictionServiceClient(client_options={"api_endpoint": f"{region}-aiplatform.googleapis.com"})
@@ -91,7 +115,6 @@ def get_most_relevant(query_vector, article_vectors, articles, top_k=20):
         return []
 
     similarities = util.cos_sim(query_vector, article_vectors)[0]
-
     top_k = min(top_k, len(articles))
     top_k_indices = torch.topk(similarities, k=top_k).indices
 
@@ -112,22 +135,34 @@ def rag_pipeline(query, relevant_articles):
 
     return response.predictions[0]['content'].strip()
 
-@app.post("/research")
+@app.post("/research", tags=["Research"], summary="Process a research query", description="Processes a research query and fetches relevant PubMed articles.")
 def research(query: QueryModel):
-    complex_query = query.query
-    simplified_query = simplify_query(complex_query)
-    pubmed_data = fetch_pubmed_articles(simplified_query)
+    try:
+        simplified_query = simplify_query(query.query)
+        pubmed_data = fetch_pubmed_articles(simplified_query)
 
-    if not pubmed_data:
-        raise HTTPException(status_code=404, detail="No relevant articles found. Please try a different query.")
+        if not pubmed_data:
+            raise HTTPException(status_code=404, detail="No relevant articles found. Please try a different query.")
 
-    texts = [a['title'] + " " + (a.get('abstract', '') or '') for a in pubmed_data]
+        texts = [a['title'] + " " + (a.get('abstract', '') or '') for a in pubmed_data]
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        article_vectors = model.encode(texts)
+        query_vector = model.encode([simplified_query])
 
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    article_vectors = model.encode(texts)
-    query_vector = model.encode([simplified_query])
+        relevant_articles = get_most_relevant(query_vector, article_vectors, pubmed_data)
+        answer = rag_pipeline(query.query, relevant_articles)
 
-    relevant_articles = get_most_relevant(query_vector, article_vectors, pubmed_data)
+        return {
+            "answer": answer,
+            "relevant_articles": relevant_articles
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    answer = rag_pipeline(complex_query, relevant_articles)
-    return {"answer": answer, "relevant_articles": relevant_articles}
+# Expose the server using pyngrok
+ngrok.set_auth_token("2jw4tDpGE8Ke8uaeglYXhtmQPfk_2n357gKGjBBpwZB61dy9V")
+public_url = ngrok.connect(8000)
+print(f"Public URL: {public_url}")
+
+# Run the Uvicorn server
+uvicorn.run(app, host="0.0.0.0", port=8000)
