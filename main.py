@@ -1,8 +1,8 @@
-pip install fastapi uvicorn pyngrok nltk requests torch sentence-transformers google-cloud-aiplatform
+#pip install fastapi uvicorn pyngrok nltk requests torch sentence-transformers google-cloud-aiplatform
 
-pip install "google-cloud-aiplatform[prediction]>=1.16.0"
+#pip install "google-cloud-aiplatform[prediction]>=1.16.0"
 
-pip install nest_asyncio
+#pip install nest_asyncio
 
 import os
 import requests
